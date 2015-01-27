@@ -1,5 +1,5 @@
 /**
- * angular-growl-v2 - v0.7.3 - 2015-01-26
+ * angular-growl-v2 - v0.7.3 - 2015-01-28
  * http://janstevens.github.io/angular-growl-2
  * Copyright (c) 2015 Marco Rinck,Jan Stevens; Licensed MIT
  */
@@ -22,12 +22,11 @@ angular.module('angular-growl').directive('growl', [function () {
         'growlMessages',
         function ($scope, $timeout, growl, growlMessages) {
           $scope.referenceId = $scope.reference || 0;
-          growlMessages.initDirective($scope.referenceId, $scope.limitMessages);
           $scope.growlMessages = growlMessages;
           $scope.inlineMessage = angular.isDefined($scope.inline) ? $scope.inline : growl.inlineMessages();
+          var directive = growlMessages.initDirective($scope.referenceId, $scope.limitMessages);
           $scope.$watch('limitMessages', function (limitMessages) {
-            var directive = growlMessages.directives[$scope.referenceId];
-            if (!angular.isUndefined(limitMessages) && !angular.isUndefined(directive)) {
+            if (!angular.isUndefined(limitMessages)) {
               directive.limitMessages = limitMessages;
             }
           });
@@ -37,7 +36,7 @@ angular.module('angular-growl').directive('growl', [function () {
                 $timeout.cancel(promise);
               });
               if (message.close) {
-                growlMessages.deleteMessage(message);
+                directive.deleteMessage(message);
               } else {
                 message.close = true;
               }
@@ -72,6 +71,17 @@ angular.module('angular-growl').directive('growl', [function () {
               };
             return ret[message.severity];
           };
+          $scope.getMessages = function () {
+            var messages = directive.messages;
+            if (growlMessages.reverseOrder) {
+              return messages.slice().reverse();
+            } else {
+              return messages;
+            }
+          };
+          $scope.deleteMessage = function (message) {
+            directive.deleteMessage(message);
+          };
         }
       ]
     };
@@ -81,7 +91,7 @@ angular.module('angular-growl').run([
   function ($templateCache) {
     'use strict';
     if ($templateCache.get('templates/growl/growl.html') === undefined) {
-      $templateCache.put('templates/growl/growl.html', '<div class="growl-container" ng-class="wrapperClasses()">' + '<div class="growl-item alert" ng-repeat="message in growlMessages.directives[referenceId].messages" ng-class="alertClasses(message)" ng-click="stopTimeoutClose(message)">' + '<button type="button" class="close" data-dismiss="alert" aria-hidden="true" ng-click="growlMessages.deleteMessage(message)" ng-show="!message.disableCloseButton">&times;</button>' + '<button type="button" class="close" aria-hidden="true" ng-show="showCountDown(message)">{{message.countdown}}</button>' + '<h4 class="growl-title" ng-show="message.title" ng-bind="message.title"></h4>' + '<div class="growl-message" ng-bind-html="message.text"></div>' + '</div>' + '</div>');
+      $templateCache.put('templates/growl/growl.html', '<div class="growl-container" ng-class="wrapperClasses()">' + '<div class="growl-item alert" ng-repeat="message in getMessages()" ng-class="alertClasses(message)" ng-click="stopTimeoutClose(message)">' + '<button type="button" class="close" data-dismiss="alert" aria-hidden="true" ng-click="deleteMessage(message)" ng-show="!message.disableCloseButton">&times;</button>' + '<button type="button" class="close" aria-hidden="true" ng-show="showCountDown(message)">{{message.countdown}}</button>' + '<h4 class="growl-title" ng-show="message.title" ng-bind="message.title"></h4>' + '<div class="growl-message" ng-bind-html="message.text"></div>' + '</div>' + '</div>');
     }
   }
 ]);
@@ -286,65 +296,37 @@ angular.module('angular-growl').service('growlMessages', [
   '$timeout',
   function ($sce, $timeout) {
     'use strict';
-    this.directives = {};
-    var preloadDirectives = {};
-    function preLoad(referenceId) {
-      var directive;
-      if (preloadDirectives[referenceId]) {
-        directive = preloadDirectives[referenceId];
-      } else {
-        directive = preloadDirectives[referenceId] = { messages: [] };
-      }
-      return directive;
+    var service = this;
+    function Directive() {
+      this.messages = [];
+      this.limitMessages = undefined;
     }
-    this.initDirective = function (referenceId, limitMessages) {
-      if (preloadDirectives[referenceId]) {
-        this.directives[referenceId] = preloadDirectives[referenceId];
-        this.directives[referenceId].limitMessages = limitMessages;
-      } else {
-        this.directives[referenceId] = {
-          messages: [],
-          limitMessages: limitMessages
-        };
+    Directive.prototype.cutMessages = function () {
+      var limit = this.limitMessages;
+      if (angular.isNumber(limit) && limit > 0) {
+        var messages = this.messages, diff = messages.length - limit;
+        if (diff > 0) {
+          messages.splice(0, diff);
+        }
       }
-      return this.directives[referenceId];
     };
-    this.getAllMessages = function (referenceId) {
-      referenceId = referenceId || 0;
-      var messages;
-      if (this.directives[referenceId]) {
-        messages = this.directives[referenceId].messages;
-      } else {
-        messages = [];
-      }
-      return messages;
-    };
-    this.destroyAllMessages = function (referenceId) {
-      var messages = this.getAllMessages(referenceId);
+    Directive.prototype.destroyAllMessages = function () {
+      var messages = this.messages;
       for (var i = messages.length - 1; i >= 0; i--) {
         messages[i].destroy();
       }
-      if (this.directives[referenceId]) {
-        this.directives[referenceId].messages = [];
-      }
+      this.messages = [];
     };
-    this.addMessage = function (message) {
-      var directive, messages, found, msgText;
-      if (this.directives[message.referenceId]) {
-        directive = this.directives[message.referenceId];
-      } else {
-        directive = preLoad(message.referenceId);
-      }
-      messages = directive.messages;
-      if (this.onlyUnique) {
-        angular.forEach(messages, function (msg) {
+    Directive.prototype.addMessage = function (message) {
+      var messages = this.messages;
+      if (service.onlyUnique) {
+        var msg, msgText;
+        for (var i = messages.length - 1; i >= 0; i--) {
+          msg = messages[i];
           msgText = $sce.getTrustedHtml(msg.text);
           if (message.text === msgText && message.severity === msg.severity && message.title === msg.title) {
-            found = true;
+            return null;
           }
-        });
-        if (found) {
-          return;
         }
       }
       message.text = $sce.trustAsHtml(String(message.text));
@@ -361,37 +343,59 @@ angular.module('angular-growl').service('growlMessages', [
           }
         };
       }
-      if (angular.isDefined(directive.limitMessages)) {
-        var diff = messages.length - (directive.limitMessages - 1);
-        if (diff > 0) {
-          messages.splice(directive.limitMessages - 1, diff);
-        }
-      }
-      if (this.reverseOrder) {
-        messages.unshift(message);
-      } else {
-        messages.push(message);
-      }
-      if (typeof message.onopen === 'function') {
+      messages.push(message);
+      this.cutMessages();
+      if (angular.isFunction(message.onopen)) {
         message.onopen();
       }
       if (message.ttl && message.ttl !== -1) {
-        message.promises.push($timeout(angular.bind(this, function () {
-          this.deleteMessage(message);
-        }), message.ttl));
+        var self = this;
+        message.promises.push($timeout(function () {
+          self.deleteMessage(message);
+        }, message.ttl));
         message.promises.push($timeout(message.countdownFunction, 1000));
       }
       return message;
     };
-    this.deleteMessage = function (message) {
-      var messages = this.directives[message.referenceId].messages, index = messages.indexOf(message);
+    Directive.prototype.deleteMessage = function (message) {
+      var messages = this.messages, index = messages.indexOf(message);
       if (index > -1) {
         messages[index].close = true;
         messages.splice(index, 1);
+        if (angular.isFunction(message.onclose)) {
+          message.onclose();
+        }
       }
-      if (typeof message.onclose === 'function') {
-        message.onclose();
+    };
+    this.directives = {};
+    this.getDirective = function (referenceId) {
+      referenceId = referenceId || 0;
+      if (!this.directives[referenceId]) {
+        this.directives[referenceId] = new Directive();
       }
+      return this.directives[referenceId];
+    };
+    this.initDirective = function (referenceId, limitMessages) {
+      var directive = this.getDirective(referenceId);
+      directive.limitMessages = limitMessages;
+      directive.cutMessages();
+      return directive;
+    };
+    this.getAllMessages = function (referenceId) {
+      var directive = this.getDirective(referenceId);
+      return directive.messages;
+    };
+    this.destroyAllMessages = function (referenceId) {
+      var directive = this.getDirective(referenceId);
+      return directive.destroyAllMessages();
+    };
+    this.addMessage = function (message) {
+      var directive = this.getDirective(message.referenceId);
+      return directive.addMessage(message);
+    };
+    this.deleteMessage = function (message) {
+      var directive = this.getDirective(message.referenceId);
+      return directive.deleteMessage(message);
     };
   }
 ]);

@@ -14,14 +14,13 @@ angular.module("angular-growl").directive("growl", [
       controller: ['$scope', '$timeout', 'growl', 'growlMessages',
         function ($scope, $timeout, growl, growlMessages) {
           $scope.referenceId = $scope.reference || 0;
-
-          growlMessages.initDirective($scope.referenceId, $scope.limitMessages);
           $scope.growlMessages = growlMessages;
           $scope.inlineMessage = angular.isDefined($scope.inline) ? $scope.inline : growl.inlineMessages();
 
+          var directive = growlMessages.initDirective($scope.referenceId, $scope.limitMessages);
+
           $scope.$watch('limitMessages', function (limitMessages) {
-            var directive = growlMessages.directives[$scope.referenceId];
-            if (!angular.isUndefined(limitMessages) && !angular.isUndefined(directive)) {
+            if (!angular.isUndefined(limitMessages)) {
               directive.limitMessages = limitMessages;
             }
           });
@@ -33,7 +32,7 @@ angular.module("angular-growl").directive("growl", [
                 $timeout.cancel(promise);
               });
               if (message.close) {
-                growlMessages.deleteMessage(message);
+                directive.deleteMessage(message);
               } else {
                 message.close = true;
               }
@@ -72,6 +71,20 @@ angular.module("angular-growl").directive("growl", [
             };
             return ret[message.severity];
           };
+
+          $scope.getMessages = function () {
+            var messages = directive.messages;
+            if (growlMessages.reverseOrder) {
+              return messages.slice().reverse();
+            } else {
+              return messages;
+            }
+          };
+
+          $scope.deleteMessage = function (message) {
+            directive.deleteMessage(message);
+          };
+
         }
       ]
     };
@@ -83,8 +96,8 @@ angular.module("angular-growl").run(['$templateCache', function ($templateCache)
   if ($templateCache.get('templates/growl/growl.html') === undefined) {
     $templateCache.put("templates/growl/growl.html",
       '<div class="growl-container" ng-class="wrapperClasses()">' +
-      '<div class="growl-item alert" ng-repeat="message in growlMessages.directives[referenceId].messages" ng-class="alertClasses(message)" ng-click="stopTimeoutClose(message)">' +
-      '<button type="button" class="close" data-dismiss="alert" aria-hidden="true" ng-click="growlMessages.deleteMessage(message)" ng-show="!message.disableCloseButton">&times;</button>' +
+      '<div class="growl-item alert" ng-repeat="message in getMessages()" ng-class="alertClasses(message)" ng-click="stopTimeoutClose(message)">' +
+      '<button type="button" class="close" data-dismiss="alert" aria-hidden="true" ng-click="deleteMessage(message)" ng-show="!message.disableCloseButton">&times;</button>' +
       '<button type="button" class="close" aria-hidden="true" ng-show="showCountDown(message)">{{message.countdown}}</button>' +
       '<h4 class="growl-title" ng-show="message.title" ng-bind="message.title"></h4>' +
       '<div class="growl-message" ng-bind-html="message.text"></div>' +

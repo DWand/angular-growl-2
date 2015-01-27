@@ -1,92 +1,43 @@
 angular.module("angular-growl").service("growlMessages", ['$sce', '$timeout', function ($sce, $timeout) {
   "use strict";
 
-  this.directives = {};
-  var preloadDirectives = {};
+  var service = this;
 
-  /**
-   * Allows for preloading a directive before the directives
-   * controller is initialized
-   * @param referenceId
-   * @returns {*}
-   */
-  function preLoad(referenceId) {
-    var directive;
-    if (preloadDirectives[referenceId]) {
-      directive =  preloadDirectives[referenceId];
-    } else {
-      directive = preloadDirectives[referenceId] = {
-        messages: []
-      };
-    }
-    return directive;
+  function Directive() {
+    this.messages = []; // Queue
+    this.limitMessages = undefined;
   }
 
-  /**
-   * Initialize a directive
-   * We look at the preloaded directive and use this else we
-   * create a new blank object
-   * @param referenceId
-   * @param limitMessages
-   */
-  this.initDirective = function (referenceId, limitMessages) {
-    // If we already have a directive preloaded use this version
-    // so our growl notifications are shown.
-    if (preloadDirectives[referenceId]) {
-      this.directives[referenceId] = preloadDirectives[referenceId];
-      this.directives[referenceId].limitMessages = limitMessages;
-    } else {
-      this.directives[referenceId] = {
-        messages: [],
-        limitMessages: limitMessages
-      };
+  Directive.prototype.cutMessages = function() {
+    var limit = this.limitMessages;
+    if (angular.isNumber(limit) && limit > 0) {
+      var messages = this.messages,
+          diff = messages.length - limit;
+      if (diff > 0) {
+        messages.splice(0, diff);
+      }
     }
-    return this.directives[referenceId];
   };
 
-  this.getAllMessages = function (referenceId) {
-    referenceId = referenceId || 0;
-    var messages;
-    if (this.directives[referenceId]) {
-      messages =  this.directives[referenceId].messages;
-    } else {
-      messages = [];
-    }
-    return messages;
-  };
-
-  this.destroyAllMessages = function (referenceId) {
-    var messages = this.getAllMessages(referenceId);
+  Directive.prototype.destroyAllMessages = function() {
+    var messages = this.messages;
     for (var i = messages.length - 1; i >= 0; i--) {
       messages[i].destroy();
     }
-    if (this.directives[referenceId]) {
-      this.directives[referenceId].messages = [];
-    }
+    this.messages = [];
   };
 
-  this.addMessage = function (message) {
-    var directive, messages, found, msgText;
+  Directive.prototype.addMessage = function (message) {
+    var messages = this.messages;
 
-    // If we dont found our directive preload it!
-    if (this.directives[message.referenceId]) {
-      directive = this.directives[message.referenceId];
-    } else {
-      directive = preLoad(message.referenceId);
-    }
-
-    messages = directive.messages;
-
-    if (this.onlyUnique) {
-      angular.forEach(messages, function (msg) {
+    if (service.onlyUnique) {
+      var msg, msgText;
+      for (var i = messages.length - 1; i >= 0; i--) {
+        msg = messages[i];
         msgText = $sce.getTrustedHtml(msg.text);
         if (message.text === msgText && message.severity === msg.severity && message.title === msg.title) {
-          found = true;
+          return null;
         }
-      });
-
-      if (found) {
-        return;
       }
     }
 
@@ -109,46 +60,80 @@ angular.module("angular-growl").service("growlMessages", ['$sce', '$timeout', fu
       };
     }
 
-    /** Limit the amount of messages in the container **/
-    if (angular.isDefined(directive.limitMessages)) {
-      var diff = messages.length - (directive.limitMessages - 1);
-      if (diff > 0) {
-        messages.splice(directive.limitMessages - 1, diff);
-      }
-    }
+    messages.push(message);
+    this.cutMessages();
 
-    /** abillity to reverse order (newest first ) **/
-    if (this.reverseOrder) {
-      messages.unshift(message);
-    } else {
-      messages.push(message);
-    }
-
-    if (typeof (message.onopen) === 'function') {
+    if (angular.isFunction(message.onopen)) {
       message.onopen();
     }
 
     if (message.ttl && message.ttl !== -1) {
+      var self = this;
       //adds message timeout to promises and starts messages countdown function.
-      message.promises.push($timeout(angular.bind(this, function () {
-        this.deleteMessage(message);
-      }), message.ttl));
+      message.promises.push($timeout(function () {
+        self.deleteMessage(message);
+      }, message.ttl));
       message.promises.push($timeout(message.countdownFunction, 1000));
     }
 
     return message;
   };
 
-  this.deleteMessage = function (message) {
-    var messages = this.directives[message.referenceId].messages,
-      index = messages.indexOf(message);
+  Directive.prototype.deleteMessage = function (message) {
+    var messages = this.messages,
+        index = messages.indexOf(message);
+
     if (index > -1) {
       messages[index].close = true;
       messages.splice(index, 1);
-    }
 
-    if (typeof (message.onclose) === 'function') {
-      message.onclose();
+      if (angular.isFunction(message.onclose)) {
+        message.onclose();
+      }
     }
   };
+
+  this.directives = {};
+
+  this.getDirective = function (referenceId) {
+    referenceId = referenceId || 0;
+    if (!this.directives[referenceId]) {
+      this.directives[referenceId] = new Directive();
+    }
+    return this.directives[referenceId];
+  };
+
+  /**
+   * Initialize a directive
+   * We look for the previously created directive or create a new one
+   * @param referenceId
+   * @param limitMessages
+   */
+  this.initDirective = function (referenceId, limitMessages) {
+    var directive = this.getDirective(referenceId);
+    directive.limitMessages = limitMessages;
+    directive.cutMessages();
+    return directive;
+  };
+
+  this.getAllMessages = function (referenceId) {
+    var directive = this.getDirective(referenceId);
+    return directive.messages;
+  };
+
+  this.destroyAllMessages = function (referenceId) {
+    var directive = this.getDirective(referenceId);
+    return directive.destroyAllMessages();
+  };
+
+  this.addMessage = function (message) {
+    var directive = this.getDirective(message.referenceId);
+    return directive.addMessage(message);
+  };
+
+  this.deleteMessage = function (message) {
+    var directive = this.getDirective(message.referenceId);
+    return directive.deleteMessage(message);
+  };
+
 }]);
