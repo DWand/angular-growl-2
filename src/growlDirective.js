@@ -9,13 +9,15 @@ angular.module("angular-growl").directive("growl", [
       scope: {
         reference: '@',
         inline: '=',
-        limitMessages: '='
+        limitMessages: '=',
+        reverse: '=',
       },
       controller: ['$scope', '$timeout', 'growl', 'growlMessages',
         function ($scope, $timeout, growl, growlMessages) {
           $scope.referenceId = $scope.reference || 0;
           $scope.growlMessages = growlMessages;
           $scope.inlineMessage = angular.isDefined($scope.inline) ? $scope.inline : growl.inlineMessages();
+          $scope.reverse = $scope.reverse || growlMessages.reverseOrder;
 
           var directive = growlMessages.initDirective($scope.referenceId, $scope.limitMessages);
 
@@ -74,7 +76,7 @@ angular.module("angular-growl").directive("growl", [
 
           $scope.getMessages = function () {
             var messages = directive.messages;
-            if (growlMessages.reverseOrder) {
+            if ($scope.reverse) {
               return messages.slice().reverse();
             } else {
               return messages;

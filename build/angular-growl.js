@@ -13,7 +13,8 @@ angular.module('angular-growl').directive('growl', [function () {
       scope: {
         reference: '@',
         inline: '=',
-        limitMessages: '='
+        limitMessages: '=',
+        reverse: '='
       },
       controller: [
         '$scope',
@@ -24,6 +25,7 @@ angular.module('angular-growl').directive('growl', [function () {
           $scope.referenceId = $scope.reference || 0;
           $scope.growlMessages = growlMessages;
           $scope.inlineMessage = angular.isDefined($scope.inline) ? $scope.inline : growl.inlineMessages();
+          $scope.reverse = $scope.reverse || growlMessages.reverseOrder;
           var directive = growlMessages.initDirective($scope.referenceId, $scope.limitMessages);
           $scope.$watch('limitMessages', function (limitMessages) {
             if (!angular.isUndefined(limitMessages)) {
@@ -73,7 +75,7 @@ angular.module('angular-growl').directive('growl', [function () {
           };
           $scope.getMessages = function () {
             var messages = directive.messages;
-            if (growlMessages.reverseOrder) {
+            if ($scope.reverse) {
               return messages.slice().reverse();
             } else {
               return messages;
